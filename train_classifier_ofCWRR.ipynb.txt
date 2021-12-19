@@ -1,0 +1,1017 @@
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import pandas as pd\n",
+    "from sklearn.feature_extraction.text import CountVectorizer\n",
+    "from sklearn.feature_extraction.text import TfidfVectorizer\n",
+    "from sklearn.feature_extraction.text import TfidfTransformer\n",
+    "import numpy as np\n",
+    "from sklearn.metrics import make_scorer, accuracy_score, precision_score, recall_score, f1_score\n",
+    "from sklearn import metrics\n",
+    "from statistics import *\n",
+    "from scipy.sparse import csr_matrix"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Reading and improving the quality of the data"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "train = pd.read_csv(\"data/train.csv\")\n",
+    "test = pd.read_csv(\"data/impermium_verification_set.csv\")\n",
+    "test_solution = pd.read_csv(\"data/impermium_verification_labels.csv\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "execute_result",
+     "data": {
+      "text/plain": [
+       "   id  Insult             Date  \\\n",
+       "0   1       0  20120603163526Z   \n",
+       "1   2       1  20120531215447Z   \n",
+       "2   3       1  20120823164228Z   \n",
+       "3   4       1  20120826010752Z   \n",
+       "4   5       1  20120602223825Z   \n",
+       "\n",
+       "                                             Comment        Usage  \n",
+    
+      ],
+      "text/html": "<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>id</th>\n      <th>Insult</th>\n      <th>Date</th>\n      <th>Comment</th>\n      <th>Usage</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>0</th>\n      <td>1</td>\n      <td>0</td>\n      <td>20120603163526Z</td>\n      <td>like this if you are a tribe fan</td>\n      <td>PrivateTest</td>\n    </tr>\n    <tr>\n      <th>1</th>\n      <td>2</td>\n      <td>1</td>\n      <td>20120531215447Z</td>\n      <td>youre idiot</td>\n      <td>PrivateTest</td>\n    </tr>\n    <tr>\n      <th>2</th>\n      <td>3</td>\n      <td>1</td>\n      <td>20120823164228Z</td>\n      <td>i am a woman babs and the only war on women i ...</td>\n      <td>PrivateTest</td>\n    </tr>\n    <tr>\n      <th>3</th>\n      <td>4</td>\n      <td>1</td>\n      <td>20120826010752Z</td>\n      <td>wow  you benefitted so many wins this year fro...</td>\n      <td>PrivateTest</td>\n    </tr>\n    <tr>\n      <th>4</th>\n      <td>5</td>\n      <td>1</td>\n      <td>20120602223825Z</td>\n      <td>haha green me red you now loser whos winning n...</td>\n      <td>PrivateTest</td>\n    </tr>\n  </tbody>\n</table>\n</div>"
+     },
+     "metadata": {},
+     "execution_count": 3
+    }
+   ],
+   "source": [
+    "test_solution['Comment'] = test_solution['Comment'].str.lower() # lowercase\n",
+    "test_solution['Comment'] = test_solution['Comment'].str.replace('[^\\w\\s]','') # remove punctuations\n",
+    "test_solution['Comment'] = test_solution['Comment'].str.replace('\\n', '')\n",
+    "test_solution['Comment'] = test_solution['Comment'].str.replace('xa0', '') # remove 'xa0' string\n",
+    "test_solution['Comment'] = test_solution['Comment'].str.replace('\\d+', '') # remove digits from the text\n",
+    "test_solution['Comment'] = test_solution['Comment'].fillna('')\n",
+    "\n",
+    "answers = test_solution['Insult']\n",
+    "\n",
+    "test_solution.head()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 4,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "execute_result",
+     "data": {
+      "text/plain": [
+       "      Insult             Date  \\\n",
+       "0          1  20120618192155Z   \n",
+       "1          0  20120528192215Z   \n",
+       "2          0              NaN   \n",
+       "3          0              NaN   \n",
+       "4          0  20120619094753Z   \n",
+       "...      ...              ...   \n",
+       "3942       1  20120502172717Z   \n",
+       "3943       0  20120528164814Z   \n",
+       "3944       0  20120620142813Z   \n",
+       "3945       0  20120528205648Z   \n",
+       "3946       0  20120515200734Z   \n",
+       "\n",
+       "                                                Comment  \n",
+    
+       "\n",
+       "[3947 rows x 3 columns]"
+      ],
+      "text/html": "<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>Insult</th>\n      <th>Date</th>\n      <th>Comment</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>0</th>\n      <td>1</td>\n      <td>20120618192155Z</td>\n      <td>you fuck your dad</td>\n    </tr>\n    <tr>\n      <th>1</th>\n      <td>0</td>\n      <td>20120528192215Z</td>\n      <td>i really dont understand your point it seems t...</td>\n    </tr>\n    <tr>\n      <th>2</th>\n      <td>0</td>\n      <td>NaN</td>\n      <td>axcmajority of canadians can and has been wron...</td>\n    </tr>\n    <tr>\n      <th>3</th>\n      <td>0</td>\n      <td>NaN</td>\n      <td>listen if you dont wanna get married to a man ...</td>\n    </tr>\n    <tr>\n      <th>4</th>\n      <td>0</td>\n      <td>20120619094753Z</td>\n      <td>cxec buean xuuedng uubueddng biuecu txecnh  cx...</td>\n    </tr>\n    <tr>\n      <th>...</th>\n      <td>...</td>\n      <td>...</td>\n      <td>...</td>\n    </tr>\n    <tr>\n      <th>3942</th>\n      <td>1</td>\n      <td>20120502172717Z</td>\n      <td>you are both morons and that is never happening</td>\n    </tr>\n    <tr>\n      <th>3943</th>\n      <td>0</td>\n      <td>20120528164814Z</td>\n      <td>many toolbars include spell check like yahoo f...</td>\n    </tr>\n    <tr>\n      <th>3944</th>\n      <td>0</td>\n      <td>20120620142813Z</td>\n      <td>lambeauorwrigleykmossnsioux falls sd i told my...</td>\n    </tr>\n    <tr>\n      <th>3945</th>\n      <td>0</td>\n      <td>20120528205648Z</td>\n      <td>how about felix he is sure turning into one he...</td>\n    </tr>\n    <tr>\n      <th>3946</th>\n      <td>0</td>\n      <td>20120515200734Z</td>\n      <td>youre all upset defending this hipster bandand...</td>\n    </tr>\n  </tbody>\n</table>\n<p>3947 rows × 3 columns</p>\n</div>"
+     },
+     "metadata": {},
+     "execution_count": 4
+    }
+   ],
+   "source": [
+    "train['Comment'] = train['Comment'].str.lower() # lowercase\n",
+    "train[\"Comment\"] = train['Comment'].str.replace('[^\\w\\s]','') # remove punctuations\n",
+    "train['Comment'] = train['Comment'].str.replace('\\n', '') # remove '\\n'\n",
+    "train['Comment'] = train['Comment'].str.replace('xa0', '') # remove 'xa0'\n",
+    "train['Comment'] = train['Comment'].str.replace('\\d+', '') # remove digits from the text\n",
+    "train['Comment'] = train['Comment'].fillna('')\n",
+    "train"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 5,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "execute_result",
+     "data": {
+      "text/plain": [
+       "   id  Insult             Date  \\\n",
+       "0   1     NaN  20120603163526Z   \n",
+       "1   2     NaN  20120531215447Z   \n",
+       "2   3     NaN  20120823164228Z   \n",
+       "3   4     NaN  20120826010752Z   \n",
+       "4   5     NaN  20120602223825Z   \n",
+       "\n",
+
+      ],
+      "text/html": "<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>id</th>\n      <th>Insult</th>\n      <th>Date</th>\n      <th>Comment</th>\n      <th>Usage</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>0</th>\n      <td>1</td>\n      <td>NaN</td>\n      <td>20120603163526Z</td>\n      <td>like this if you are a tribe fan</td>\n      <td>PrivateTest</td>\n    </tr>\n    <tr>\n      <th>1</th>\n      <td>2</td>\n      <td>NaN</td>\n      <td>20120531215447Z</td>\n      <td>youre idiot</td>\n      <td>PrivateTest</td>\n    </tr>\n    <tr>\n      <th>2</th>\n      <td>3</td>\n      <td>NaN</td>\n      <td>20120823164228Z</td>\n      <td>i am a woman babs and the only war on women i ...</td>\n      <td>PrivateTest</td>\n    </tr>\n    <tr>\n      <th>3</th>\n      <td>4</td>\n      <td>NaN</td>\n      <td>20120826010752Z</td>\n      <td>wow  you benefitted so many wins this year fro...</td>\n      <td>PrivateTest</td>\n    </tr>\n    <tr>\n      <th>4</th>\n      <td>5</td>\n      <td>NaN</td>\n      <td>20120602223825Z</td>\n      <td>haha green me red you now loser whos winning n...</td>\n      <td>PrivateTest</td>\n    </tr>\n  </tbody>\n</table>\n</div>"
+     },
+     "metadata": {},
+     "execution_count": 5
+    }
+   ],
+   "source": [
+    "test['Comment'] = test['Comment'].str.lower() # lowercase\n",
+    "test['Comment'] = test['Comment'].str.replace('[^\\w\\s]','') # remove punctuations\n",
+    "test['Comment'] = test['Comment'].str.replace('\\n', '')\n",
+    "test['Comment'] = test['Comment'].str.replace('xa0', '')\n",
+    "test['Comment'] = test['Comment'].str.replace('\\d+', '')\n",
+    "test['Comment'] = test['Comment'].fillna('')\n",
+    "test.head()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Classification Naive Bayes"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 6,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from sklearn.model_selection import train_test_split\n",
+    "\n",
+    "target = train['Insult']\n",
+    "\n",
+    "X_train, X_test, y_train, y_test = train_test_split(train.Comment, target, test_size=0.2)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 7,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "execute_result",
+     "data": {
+      "text/plain": [
+       "3157"
+      ]
+     },
+     "metadata": {},
+     "execution_count": 7
+    }
+   ],
+   "source": [
+    "len(X_train)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 8,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "execute_result",
+     "data": {
+      "text/plain": [
+       "790"
+      ]
+     },
+     "metadata": {},
+     "execution_count": 8
+    }
+   ],
+   "source": [
+    "len(X_test)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 9,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "execute_result",
+     "data": {
+      "text/plain": [
+       "array([[0, 0, 0, ..., 0, 0, 0],\n",
+       "       [0, 0, 0, ..., 0, 0, 0],\n",
+       "       [0, 0, 0, ..., 0, 0, 0]])"
+      ]
+     },
+     "metadata": {},
+     "execution_count": 9
+    }
+   ],
+   "source": [
+    "v = CountVectorizer()\n",
+    "X_train_count = v.fit_transform(X_train.values)\n",
+    "X_train_count.toarray()[:3]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 10,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "execute_result",
+     "data": {
+      "text/plain": [
+       "MultinomialNB(alpha=1e-05)"
+      ]
+     },
+     "metadata": {},
+     "execution_count": 10
+    }
+   ],
+   "source": [
+    "from sklearn.naive_bayes import MultinomialNB\n",
+    "\n",
+    "model = MultinomialNB(alpha=0.00001) # without smoothing\n",
+    "model.fit(X_train_count, y_train)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 11,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "test_count = v.transform(test['Comment'])\n",
+    "y_pred = model.predict(test_count)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 12,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "execute_result",
+     "data": {
+      "text/plain": [
+       "2235"
+      ]
+     },
+     "metadata": {},
+     "execution_count": 12
+    }
+   ],
+   "source": [
+    "len(y_pred)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 13,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "execute_result",
+     "data": {
+      "text/plain": [
+       "2235"
+      ]
+     },
+     "metadata": {},
+     "execution_count": 13
+    }
+   ],
+   "source": [
+    "len(answers)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 14,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "stream",
+     "name": "stdout",
+     "text": [
+      "0.5246053853296193\n0.5771195097037793\n"
+     ]
+    }
+   ],
+   "source": [
+    "recall = recall_score(answers,y_pred)\n",
+    "precision = precision_score(answers,y_pred)\n",
+    "\n",
+    "print(recall)\n",
+    "print(precision)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### the mean accuracy"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 15,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "stream",
+     "name": "stdout",
+     "text": [
+      "Accuracy: 0.7531645569620253\nF1 score: 0.5496108949416342\n"
+     ]
+    }
+   ],
+   "source": [
+    "X_test_count = v.transform(X_test)\n",
+    "print(\"Accuracy:\", model.score(X_test_count, y_test))\n",
+    "print(\"F1 score:\", 2*((precision*recall)/(precision+recall)))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 16,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from nltk import word_tokenize\n",
+    "from nltk.stem import WordNetLemmatizer\n",
+    "\n",
+    "\n",
+    "\n",
+    "class LemmaTokenizer(object):\n",
+    "    def __init__(self):\n",
+    "        self.wnl = WordNetLemmatizer()\n",
+    "    def __call__(self, text):\n",
+    "        return [self.wnl.lemmatize(t) for t in word_tokenize(text)]\n",
+    "\n",
+    "#train['Comment_lemmatized'] = train.Comment.apply(lemmatize_text)\n",
+    "\n",
+    "#train['Comment_lemmatized']\n",
+    "\n",
+    "X_train, X_test, y_train, y_test = train_test_split(train.Comment, target, test_size=0.2)\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## with Lemmatization"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 17,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "execute_result",
+     "data": {
+      "text/plain": [
+       "array([[0, 0, 0, ..., 0, 0, 0],\n",
+       "       [0, 0, 0, ..., 0, 0, 0],\n",
+       "       [0, 0, 0, ..., 0, 0, 0]])"
+      ]
+     },
+     "metadata": {},
+     "execution_count": 17
+    }
+   ],
+   "source": [
+    "import nltk\n",
+    "v = CountVectorizer(tokenizer=LemmaTokenizer())\n",
+    "X_train_count = v.fit_transform(X_train.values)\n",
+    "X_train_count.toarray()[:3]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 18,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "execute_result",
+     "data": {
+      "text/plain": [
+       "MultinomialNB(alpha=1e-05)"
+      ]
+     },
+     "metadata": {},
+     "execution_count": 18
+    }
+   ],
+   "source": [
+    "model = MultinomialNB(alpha=0.00001) # without smoothing\n",
+    "model.fit(X_train_count, y_train)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 19,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "test_count = v.transform(test['Comment'])\n",
+    "y_pred = model.predict(test_count)\n",
+    "\n",
+    "recall = recall_score(answers,y_pred)\n",
+    "precision = precision_score(answers,y_pred)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### the mean accuracy"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 24,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "stream",
+     "name": "stdout",
+     "text": [
+      "Accuracy: 0.7417721518987341\nF1 score: 0.5475728155339806\n"
+     ]
+    }
+   ],
+   "source": [
+    "X_test_count = v.transform(X_test)\n",
+    "\n",
+    "print(\"Accuracy:\", model.score(X_test_count, y_test))\n",
+    "print(\"F1 score:\", 2*((precision*recall)/(precision+recall)))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Remove stopwords"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 25,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "stream",
+     "name": "stderr",
+     "text": [
+      "[nltk_data] Downloading package stopwords to\n[nltk_data]     /Users/aristotelistsoytsanis/nltk_data...\n[nltk_data]   Package stopwords is already up-to-date!\n"
+     ]
+    },
+    {
+     "output_type": "execute_result",
+     "data": {
+      "text/plain": [
+       "array([[0, 0, 0, ..., 0, 0, 0],\n",
+       "       [0, 0, 0, ..., 0, 0, 0],\n",
+       "       [0, 0, 0, ..., 0, 0, 0]])"
+      ]
+     },
+     "metadata": {},
+     "execution_count": 25
+    }
+   ],
+   "source": [
+    "from nltk.corpus import stopwords\n",
+    "nltk.download('stopwords')\n",
+    "stop = stopwords.words('english')\n",
+    "\n",
+    "data = train['Comment']\n",
+    "data.apply(lambda x: [item for item in x if item not in stop])\n",
+    "\n",
+    "X_train, X_test, y_train, y_test = train_test_split(data, target, test_size=0.2)\n",
+    "\n",
+    "v = CountVectorizer()\n",
+    "X_train_count = v.fit_transform(X_train.values)\n",
+    "X_train_count.toarray()[:3]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 26,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "execute_result",
+     "data": {
+      "text/plain": [
+       "MultinomialNB(alpha=1e-05)"
+      ]
+     },
+     "metadata": {},
+     "execution_count": 26
+    }
+   ],
+   "source": [
+    "model = MultinomialNB(alpha=0.00001)\n",
+    "model.fit(X_train_count, y_train)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 27,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "test_count = v.transform(test['Comment'])\n",
+    "y_pred = model.predict(test_count)\n",
+    "\n",
+    "recall = recall_score(answers,y_pred)\n",
+    "precision = precision_score(answers,y_pred)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### the mean accuracy"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 28,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "stream",
+     "name": "stdout",
+     "text": [
+      "Accuracy: 0.7379746835443038\nF1 score: 0.5491923641703378\n"
+     ]
+    }
+   ],
+   "source": [
+    "X_test_count = v.transform(X_test)\n",
+    "print(\"Accuracy:\", model.score(X_test_count, y_test))\n",
+    "print(\"F1 score:\", 2*((precision*recall)/(precision+recall)))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## With bigrams"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 29,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "execute_result",
+     "data": {
+      "text/plain": [
+       "MultinomialNB(alpha=0.0001)"
+      ]
+     },
+     "metadata": {},
+     "execution_count": 29
+    }
+   ],
+   "source": [
+    "v = CountVectorizer(ngram_range=(2, 2))\n",
+    "X_train_count = v.fit_transform(X_train.values)\n",
+    "\n",
+    "model = MultinomialNB(alpha=0.0001) # without laplace smoothing\n",
+    "model.fit(X_train_count, y_train)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 30,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "test_count = v.transform(test['Comment'])\n",
+    "y_pred = model.predict(test_count)\n",
+    "\n",
+    "recall = recall_score(answers,y_pred)\n",
+    "precision = precision_score(answers,y_pred)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### the mean accuracy"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 31,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "stream",
+     "name": "stdout",
+     "text": [
+      "Accuracy: 0.730379746835443\nF1 score: 0.5242925787506675\n"
+     ]
+    }
+   ],
+   "source": [
+    "#the mean accuracy:\n",
+    "\n",
+    "X_test_count = v.transform(X_test)\n",
+    "print(\"Accuracy:\", model.score(X_test_count, y_test))\n",
+    "print(\"F1 score:\", 2*((precision*recall)/(precision+recall)))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## With  Laplace Smoothing"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 32,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "execute_result",
+     "data": {
+      "text/plain": [
+       "MultinomialNB()"
+      ]
+     },
+     "metadata": {},
+     "execution_count": 32
+    }
+   ],
+   "source": [
+    "v = CountVectorizer()\n",
+    "X_train_count = v.fit_transform(X_train.values)\n",
+    "\n",
+    "model = MultinomialNB() # by default alpha is 1\n",
+    "model.fit(X_train_count, y_train)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 33,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "test_count = v.transform(test['Comment'])\n",
+    "y_pred = model.predict(test_count)\n",
+    "\n",
+    "recall = recall_score(answers,y_pred)\n",
+    "precision = precision_score(answers,y_pred)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### the mean accuracy"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 34,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "stream",
+     "name": "stdout",
+     "text": [
+      "Accuracy: 0.8126582278481013\nF1 score: 0.5821917808219179\n"
+     ]
+    }
+   ],
+   "source": [
+    "#Score:\n",
+    "\n",
+    "X_test_count = v.transform(X_test)\n",
+    "print(\"Accuracy:\", model.score(X_test_count, y_test))\n",
+    "print(\"F1 score:\", 2*((precision*recall)/(precision+recall)))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Όπως φαίνεται από τα παραπάνω score όντως οι τεχνικές βελτιώνουν τον Naive Bayes"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### part of speech and tf idf"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 36,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "stream",
+     "name": "stderr",
+     "text": [
+      "[nltk_data] Downloading package averaged_perceptron_tagger to\n",
+      "[nltk_data]     /Users/aristotelistsoytsanis/nltk_data...\n",
+      "[nltk_data]   Unzipping taggers/averaged_perceptron_tagger.zip.\n"
+     ]
+    }
+   ],
+   "source": [
+    "import nltk\n",
+    "from nltk.tokenize import word_tokenize, sent_tokenize\n",
+    "nltk.download('averaged_perceptron_tagger')\n",
+    "\n",
+    "train['Comment'].dropna(inplace=True)\n",
+    "\n",
+    "\n",
+    "data = train['Comment']\n",
+    "data.apply(lambda x: [item for item in x if item not in stop])\n",
+    "\n",
+    "tokens = data.apply(word_tokenize) # tokenizing the data\n",
+    "\n",
+    "tagged_tokens=[]\n",
+    "for token in tokens:\n",
+    "    tagged_tokens.append(nltk.pos_tag(token))\n",
+    "    \n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "#### Create tfidf"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 37,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "stream",
+     "name": "stdout",
+
+   "source": [
+    "tfidf_vectorizer = TfidfVectorizer(max_df=1.0, min_df=1, max_features=1000, #cut down to 1000 for practicality\n",
+    "stop_words='english', ngram_range = (1,1))\n",
+    "tfidf = tfidf_vectorizer.fit_transform(train['Comment'])\n",
+    "tfidf = tfidf.toarray()\n",
+    "\n",
+    "print(tfidf)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 38,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from collections import Counter\n",
+    "i = 0\n",
+    "j = 0\n",
+    "array = np.zeros((3947,4))\n",
+    "while i < len(tagged_tokens):\n",
+  
+    "    array[i][0] = array[i][0]/len(tagged_tokens[i])\n",
+    "    array[i][1] = array[i][1]/len(tagged_tokens[i])\n",
+    "    array[i][2] = array[i][2]/len(tagged_tokens[i])\n",
+    "    array[i][3] = array[i][3]/len(tagged_tokens[i])\n",
+    "    i = i + 1"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Create tfidf array and then combine it with our part of speech array"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 39,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "execute_result",
+     "data": {
+      "text/plain": [
+     
+      ],
+  
+     "metadata": {},
+     "execution_count": 39
+    }
+   ],
+   "source": [
+    "tfidf_vectorizer = TfidfVectorizer(max_df=1.0, min_df=1, max_features = 1000)\n",
+    "\n",
+    "tfidf_train = tfidf_vectorizer.fit_transform(train['Comment'])\n",
+    "train_correct = train['Insult'].to_numpy()\n",
+    "train_correct = train_correct.astype('int')\n",
+    "\n",
+    "import scipy.sparse as sp\n",
+    "\n",
+    "c = sp.hstack((array,tfidf_train))\n",
+    "\n",
+    "c = c.toarray()\n",
+    "\n",
+    "data = pd.DataFrame(c)\n",
+    "\n",
+    "data"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### SVM"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 40,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "stream",
+     "name": "stdout",
+     "text": [
+      "Accuracy average: 0.8358170018633939\nF1_score average: 0.8358170018633939\n"
+     ]
+    }
+   ],
+   "source": [
+    "from sklearn import svm\n",
+    "from sklearn.model_selection import KFold\n",
+    "\n",
+    "y = target = train['Insult']\n",
+    "X = data\n",
+    "\n",
+    "c = svm.SVC()\n",
+    "X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2) # 0.2 is 20%\n",
+    "kf = KFold(n_splits=10,shuffle=False)\n",
+    "kf.split(X)\n",
+    "\n",
+    "accuracy_model = []\n",
+    "f1_model = []\n",
+    "\n",
+    "for train_index, test_index in kf.split(X):\n",
+    "    X_train, X_test = X.iloc[train_index], X.iloc[test_index]\n",
+    "    y_train, y_test = y[train_index], y[test_index]\n",
+    "    model = c.fit(X_train, y_train)\n",
+    "    accuracy_model.append(accuracy_score(y_test, model.predict(X_test), normalize=True))\n",
+    "    f1_model.append(f1_score(y_test, model.predict(X_test), average='micro'))\n",
+    "print(\"Accuracy average:\", mean(accuracy_model))\n",
+    "print(\"F1_score average:\",mean(f1_model))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Random Forest"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 41,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "stream",
+     "name": "stdout",
+     "text": [
+      "Accuracy average: 0.8170648332583692\nF1_score average: 0.8170648332583692\n"
+     ]
+    }
+   ],
+   "source": [
+    "from sklearn.ensemble import RandomForestClassifier\n",
+    "\n",
+    "y = target = train['Insult']\n",
+    "X = data\n",
+    "\n",
+    "c=RandomForestClassifier(n_estimators=100)\n",
+    "X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2) # 0.2 is 20%\n",
+    "kf = KFold(n_splits=10,shuffle=False)\n",
+    "kf.split(X)\n",
+    "\n",
+    "accuracy_model = []\n",
+    "f1_model = []\n",
+    "\n",
+    "for train_index, test_index in kf.split(X):\n",
+    "    X_train, X_test = X.iloc[train_index], X.iloc[test_index]\n",
+    "    y_train, y_test = y[train_index], y[test_index]\n",
+    "    model = c.fit(X_train, y_train)\n",
+    "    accuracy_model.append(accuracy_score(y_test, model.predict(X_test), normalize=True))\n",
+    "    f1_model.append(f1_score(y_test, model.predict(X_test), average='micro'))\n",
+    "print(\"Accuracy average:\", mean(accuracy_model))\n",
+    "print(\"F1_score average:\",mean(f1_model))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Improve F1 score"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 42,
+   "metadata": {},
+   "outputs": [
+    {
+     "output_type": "stream",
+     "name": "stdout",
+     "text": [
+      "Accuracy average: 0.836321421430792\nF1_score average: 0.836321421430792\n"
+     ]
+    }
+   ],
+   "source": [
+    "y = target = train['Insult']\n",
+    "X = data\n",
+    "\n",
+    "c = svm.SVC()\n",
+    "X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3) # 0.2 is 20%\n",
+    "kf = KFold(n_splits=9,shuffle=False)\n",
+    "kf.split(X)\n",
+    "\n",
+    "accuracy_model = []\n",
+    "f1_model = []\n",
+    "\n",
+    "for train_index, test_index in kf.split(X):\n",
+    "    X_train, X_test = X.iloc[train_index], X.iloc[test_index]\n",
+    "    y_train, y_test = y[train_index], y[test_index]\n",
+    "    model = c.fit(X_train, y_train)\n",
+    "    accuracy_model.append(accuracy_score(y_test, model.predict(X_test), normalize=True))\n",
+    "    f1_model.append(f1_score(y_test, model.predict(X_test), average='micro'))\n",
+    "print(\"Accuracy average:\", mean(accuracy_model))\n",
+    "print(\"F1_score average:\",mean(f1_model))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "name": "python385jvsc74a57bd0449fd42cbc372244f1850aceb263af8aab1e04a9a379e8a771077142d049e682",
+   "display_name": "Python 3.8.5 64-bit ('base': conda)"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.8.5-final"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 4
+}
